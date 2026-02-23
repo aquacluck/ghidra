@@ -1,0 +1,64 @@
+name: Publish release artifacts
+# thanks https://github.com/NationalSecurityAgency/ghidra/pull/1315, https://github.com/NationalSecurityAgency/ghidra/pull/2142
+
+on:
+  push:
+    branches:
+    - master
+
+permissions:
+  contents: write
+
+jobs:
+  build_and_publish:
+    strategy:
+      matrix:
+        platform: [ubuntu-latest, windows-latest] # TODO macos-latest? don't care lol
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: "adopt"
+          java-version: 21
+
+      - name: Build Dependencies (Linux)
+        if: matrix.platform == 'ubuntu-latest'
+        run: sudo apt-get update && sudo apt-get install -y bison flex
+
+      - name: Build Dependencies (Windows)
+        if: matrix.platform == 'windows-latest'
+        env:
+          POWERSHELL_TELEMETRY_OPTOUT: 1
+        run: |
+          choco install winflexbison
+          Rename-Item "$env:ProgramData\chocolatey\bin\win_bison.exe" "bison.exe"
+          Rename-Item "$env:ProgramData\chocolatey\bin\win_flex.exe" "flex.exe"
+
+      - name: Fetch Dependencies
+        run: gradle -I gradle/support/fetchDependencies.gradle
+
+      - name: Build with Gradle
+        run: gradle buildGhidra
+
+      - uses: svenstaro/upload-release-action@v2
+        if: matrix.platform == 'ubuntu-latest'
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: build/dist/ghidra_*_linux64.zip
+          tag: ${{ github.ref }}
+          overwrite: true
+          file_glob: true
+
+      - uses: svenstaro/upload-release-action@v2
+        if: matrix.platform == 'windows-latest'
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: build/dist/ghidra_*_win64.zip
+          tag: ${{ github.ref }}
+          overwrite: true
+          file_glob: true
+
